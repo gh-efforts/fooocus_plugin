@@ -16,3 +16,7 @@ serde = { version = "1", features = ["derive"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["default"] }
 nacos-sdk = { version = "0.3.3", features = ["default"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
