@@ -1,0 +1,8 @@
+[nacos_service_config]
+server_addr = "127.0.0.1:8848"
+username = "xxx"
+password = "xxx"
+namespace = "id"
+
+[translator_config]
+api = "http://127.0.0.1:5000/translate"
