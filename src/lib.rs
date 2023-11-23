@@ -133,7 +133,8 @@ pub fn service_deregister(
 }
 
 pub fn text_translate_inner(
-    other_language_text: &str
+    input_text: &str,
+    dst_language: &str
 ) -> PyResult<String> {
     let c = CLIENT.get_or_init(|| {
         ureq::Agent::new()
@@ -142,11 +143,11 @@ pub fn text_translate_inner(
     let config = &CONFIG.get().ok_or_else(|| PyTypeError::new_err("fooocus plugin is not initialized"))?.translator_config;
 
     let resp = c.post(&config.api)
-        .send_json([
-            ("q", other_language_text),
-            ("source", "auto"),
-            ("target", "en")
-        ]).map_err(|e| PyTypeError::new_err(e.to_string()))?;
+        .send_json(ureq::json!({
+            "q": input_text,
+            "source": "auto",
+            "target": dst_language
+        })).map_err(|e| PyTypeError::new_err(e.to_string()))?;
 
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
@@ -160,9 +161,10 @@ pub fn text_translate_inner(
 
 #[pyfunction]
 pub fn text_translate(
-    other_language_text: &str
+    input_text: &str,
+    dst_language: &str
 ) -> PyResult<String> {
-    text_translate_inner(other_language_text)
+    text_translate_inner(input_text, dst_language)
 }
 
 /// A Python module implemented in Rust.
