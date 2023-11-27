@@ -73,6 +73,7 @@ fn create_naming_service() -> nacos_sdk::api::error::Result<impl NamingService> 
 pub fn service_register_inner(
     instance_addr: SocketAddr,
     instance_name: String,
+    metadata_json: &str
 ) -> PyResult<()> {
     let service = NAMING_SERVICE.get_or_init(|| {
         let s = create_naming_service().unwrap();
@@ -82,6 +83,7 @@ pub fn service_register_inner(
     let instance = ServiceInstance {
         ip: instance_addr.ip().to_string(),
         port: instance_addr.port() as i32,
+        metadata: serde_json::from_str(metadata_json).map_err(|e| PyTypeError::new_err(e.to_string()))?,
         ..Default::default()
     };
 
@@ -97,8 +99,13 @@ pub fn service_register(
     instance_ip: IpAddr,
     instance_port: u16,
     instance_name: String,
+    metadata_json: &str
 ) -> PyResult<()> {
-    service_register_inner(SocketAddr::new(instance_ip, instance_port), instance_name)
+    service_register_inner(
+        SocketAddr::new(instance_ip, instance_port),
+        instance_name,
+        metadata_json
+    )
 }
 
 pub fn service_deregister_inner(
