@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::{Mutex, OnceLock};
 
 use nacos_sdk::api::constants;
