@@ -1,5 +1,5 @@
-use std::net::{IpAddr, SocketAddr};
-use std::sync::OnceLock;
+use std::net::SocketAddr;
+use std::sync::{Mutex, OnceLock};
 
 use nacos_sdk::api::constants;
 use nacos_sdk::api::naming::{NamingServiceBuilder, ServiceInstance};
@@ -12,6 +12,7 @@ use ureq::Agent;
 
 static CONFIG: OnceLock<Config> = OnceLock::new();
 static NAMING_SERVICE: OnceLock<Box<dyn NamingService + Sync + Send + 'static>> = OnceLock::new();
+static DEREGISTER_SERVICE: Mutex<Option<Box<dyn Fn() -> nacos_sdk::api::error::Result<()> + Sync + Send + 'static>>> = Mutex::new(None);
 static CLIENT: OnceLock<Agent> = OnceLock::new();
 
 #[derive(Deserialize)]
@@ -66,14 +67,14 @@ fn create_naming_service() -> nacos_sdk::api::error::Result<impl NamingService> 
             .auth_password(&config.password)
             .namespace(&config.namespace)
     )
-    .enable_auth_plugin_http()
-    .build()
+        .enable_auth_plugin_http()
+        .build()
 }
 
 pub fn service_register_inner(
     instance_addr: SocketAddr,
     instance_name: String,
-    metadata_json: &str
+    metadata_json: &str,
 ) -> PyResult<()> {
     let service = NAMING_SERVICE.get_or_init(|| {
         let s = create_naming_service().unwrap();
@@ -87,11 +88,29 @@ pub fn service_register_inner(
         ..Default::default()
     };
 
-    service.register_instance(
-        instance_name,
-        Some(constants::DEFAULT_GROUP.to_string()),
-        instance,
-    ).map_err(|e| PyTypeError::new_err(e.to_string()))
+    let res = {
+        let instance = instance.clone();
+        let instance_name = instance_name.clone();
+
+        service.register_instance(
+            instance_name,
+            Some(constants::DEFAULT_GROUP.to_string()),
+            instance,
+        ).map_err(|e| PyTypeError::new_err(e.to_string()))
+    };
+
+    if res.is_ok() {
+        let deregister_fn = move || {
+            service.deregister_instance(
+                instance_name.clone(),
+                Some(constants::DEFAULT_GROUP.to_string()),
+                instance.clone(),
+            )
+        };
+
+        *DEREGISTER_SERVICE.lock().unwrap() = Some(Box::new(deregister_fn));
+    };
+    res
 }
 
 #[pyfunction]
@@ -99,49 +118,30 @@ pub fn service_register(
     instance_ip: IpAddr,
     instance_port: u16,
     instance_name: String,
-    metadata_json: &str
+    metadata_json: &str,
 ) -> PyResult<()> {
     service_register_inner(
         SocketAddr::new(instance_ip, instance_port),
         instance_name,
-        metadata_json
+        metadata_json,
     )
 }
 
-pub fn service_deregister_inner(
-    instance_addr: SocketAddr,
-    instance_name: String,
-) -> PyResult<()> {
-    let service = NAMING_SERVICE.get_or_init(|| {
-        let s = create_naming_service().unwrap();
-        Box::new(s)
-    });
-
-    let instance = ServiceInstance {
-        ip: instance_addr.ip().to_string(),
-        port: instance_addr.port() as i32,
-        ..Default::default()
-    };
-
-    service.deregister_instance(
-        instance_name,
-        Some(constants::DEFAULT_GROUP.to_string()),
-        instance
-    ).map_err(|e| PyTypeError::new_err(e.to_string()))
+pub fn service_deregister_inner() -> PyResult<()> {
+    match DEREGISTER_SERVICE.lock().unwrap().as_ref() {
+        None => Err(PyTypeError::new_err("service has not been registered")),
+        Some(v) => v().map_err(|e| PyTypeError::new_err(e.to_string()))
+    }
 }
 
 #[pyfunction]
-pub fn service_deregister(
-    instance_ip: IpAddr,
-    instance_port: u16,
-    instance_name: String,
-) -> PyResult<()> {
-    service_deregister_inner(SocketAddr::new(instance_ip, instance_port), instance_name)
+pub fn service_deregister() -> PyResult<()> {
+    service_deregister_inner()
 }
 
 pub fn text_translate_inner(
     input_text: &str,
-    dst_language: &str
+    dst_language: &str,
 ) -> PyResult<String> {
     let c = CLIENT.get_or_init(|| {
         ureq::Agent::new()
@@ -169,7 +169,7 @@ pub fn text_translate_inner(
 #[pyfunction]
 pub fn text_translate(
     input_text: &str,
-    dst_language: &str
+    dst_language: &str,
 ) -> PyResult<String> {
     text_translate_inner(input_text, dst_language)
 }
