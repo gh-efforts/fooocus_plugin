@@ -29,8 +29,9 @@ jobs:
       - uses: actions/download-artifact@v3
         with:
           name: wheels
+          path: download
       - run: |
           commit=${{ github.sha }}
-          gh release create ${commit:0:16} wheels/*.whl
+          gh release create ${commit:0:16} download/*.whl
         env:
           GH_TOKEN: ${{ github.token }}
