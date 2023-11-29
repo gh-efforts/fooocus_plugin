@@ -10,6 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: |
-          gh release create
+          pip install maturin
+          maturin build --release
+          gh release create ${{ github.sha }} target/wheels/*.whl
         env:
           GH_TOKEN: ${{ github.token }}
