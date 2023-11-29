@@ -1,4 +1,4 @@
-use std::net::{IpAddr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::{Mutex, OnceLock};
 
 use nacos_sdk::api::constants;
@@ -32,6 +32,13 @@ struct TranslatorConfig {
 struct Config {
     nacos_service_config: ServiceConfig,
     translator_config: TranslatorConfig,
+}
+
+fn find_lan_addr() -> std::io::Result<IpAddr> {
+    let socket = std::net::UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0))?;
+    socket.connect("8.8.8.8")?;
+    let addr = socket.local_addr()?;
+    Ok(addr.ip())
 }
 
 fn init_inner(nacos_config_path: &str) {
@@ -115,11 +122,12 @@ pub fn service_register_inner(
 
 #[pyfunction]
 pub fn service_register(
-    instance_ip: IpAddr,
     instance_port: u16,
     instance_name: String,
     metadata_json: &str,
 ) -> PyResult<()> {
+    let instance_ip = find_lan_addr().map_err(|e| PyTypeError::new_err(e.to_string()))?;
+
     service_register_inner(
         SocketAddr::new(instance_ip, instance_port),
         instance_name,
