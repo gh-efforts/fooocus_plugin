@@ -17,8 +17,6 @@ jobs:
       - run: |
           pip install maturin
           maturin build --release
-        env:
-          GH_TOKEN: ${{ github.token }}
       - uses: actions/upload-artifact@v3
         with:
           name: wheels
@@ -34,3 +32,5 @@ jobs:
       - run: |
           commit=${{ github.sha }}
           gh release create ${commit:0:16} wheels/*.whl
+        env:
+          GH_TOKEN: ${{ github.token }}
