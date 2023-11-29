@@ -10,4 +10,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: |
-          gh create release
+#          pip install maturin
+#          maturin build --release
+          gh release create
