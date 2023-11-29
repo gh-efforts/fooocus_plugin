@@ -21,4 +21,3 @@ ureq = { version = "2", default-features = false, features = ["tls", "json"] }
 
 [profile.release]
 lto = true
-codegen-units = 1
