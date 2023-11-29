@@ -13,7 +13,7 @@ jobs:
       - run: |
           pip install maturin
           maturin build --release
-          commit = ${{ github.sha }}
+          commit=${{ github.sha }}
           gh release create ${commit:0:16} target/wheels/*.whl
         env:
           GH_TOKEN: ${{ github.token }}
