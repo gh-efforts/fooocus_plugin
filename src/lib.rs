@@ -36,7 +36,7 @@ struct Config {
 
 fn find_lan_addr() -> std::io::Result<IpAddr> {
     let socket = std::net::UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0))?;
-    socket.connect("8.8.8.8")?;
+    socket.connect("8.8.8.8:53")?;
     let addr = socket.local_addr()?;
     Ok(addr.ip())
 }
