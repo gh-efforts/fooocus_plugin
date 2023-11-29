@@ -21,3 +21,18 @@ jobs:
           gh release create ${commit:0:16} target/wheels/*.whl
         env:
           GH_TOKEN: ${{ github.token }}
+      - uses: actions/upload-artifact@v3
+        with:
+          name: wheels
+          path: target/wheels/*.whl
+
+  create-release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v3
+        with:
+          name: wheels
+      - run: |
+          commit=${{ github.sha }}
+          gh release create ${commit:0:16} wheels/*.whl
