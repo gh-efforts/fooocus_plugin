@@ -11,3 +11,5 @@ jobs:
     steps:
       - run: |
           gh release create
+        env:
+          GH_TOKEN: ${{ github.token }}
