@@ -1,4 +1,5 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::str::FromStr;
 use std::sync::{Mutex, OnceLock};
 
 use nacos_sdk::api::constants;
@@ -42,8 +43,12 @@ fn find_lan_addr() -> std::io::Result<IpAddr> {
 }
 
 fn init_inner(nacos_config_path: &str) {
+    let level = std::env::var("FOOOCUS_PLUGIN_LOG")
+        .map(|s| tracing::Level::from_str(&s).unwrap())
+        .unwrap_or(tracing::Level::INFO);
+
     tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::INFO)
+        .with_max_level(level)
         .init();
 
     CONFIG.get_or_init(|| {
