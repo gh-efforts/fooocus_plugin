@@ -18,7 +18,7 @@ static CLIENT: OnceLock<Agent> = OnceLock::new();
 
 #[derive(Deserialize)]
 struct ServiceConfig {
-    server_addr: SocketAddr,
+    server_addr: String,
     username: String,
     password: String,
     namespace: String,
@@ -74,7 +74,7 @@ fn create_naming_service() -> nacos_sdk::api::error::Result<impl NamingService> 
 
     NamingServiceBuilder::new(
         ClientProps::new()
-            .server_addr(&config.server_addr.to_string())
+            .server_addr(&config.server_addr)
             .auth_username(&config.username)
             .auth_password(&config.password)
             .namespace(&config.namespace)
