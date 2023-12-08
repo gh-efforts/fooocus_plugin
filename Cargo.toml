@@ -16,7 +16,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["default"] }
-nacos-sdk = { version = "0.3.3", features = ["default"] }
+nacos-sdk = { version = "0.3.3", features = ["default", "tls"] }
 ureq = { version = "2", default-features = false, features = ["tls", "json"] }
 
 [profile.release]
