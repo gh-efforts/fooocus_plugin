@@ -8,8 +8,20 @@ namespace = "id"
 api = "http://127.0.0.1:5000/translate"
 
 [models_config]
+memory_disk_path = ""
+
+# Lazy load
+checkpoints = ""
 # GB
-memory_limit = 50
-memory_dist_path = ""
-base_model = ""
-lora_model = ""
+checkpoints_memory_limit = 50
+loras = ""
+loras_memory_limit = 50
+
+# Eager load
+embeddings = ""
+vae_approx = ""
+upscale_models = ""
+inpaint = ""
+controlnet = ""
+clip_vision = ""
+fooocus_expansion = ""

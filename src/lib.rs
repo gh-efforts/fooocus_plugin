@@ -1,6 +1,6 @@
+use std::{fs, io};
 use std::fs::FileTimes;
-use std::io;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::{Mutex, OnceLock};
@@ -36,17 +36,25 @@ struct TranslatorConfig {
 
 #[derive(Deserialize)]
 struct ModelsConfig {
-    memory_limit: u64,
     memory_disk_path: PathBuf,
-    base_model: PathBuf,
-    lora_model: PathBuf
+    checkpoints: PathBuf,
+    checkpoints_memory_limit: u64,
+    loras: PathBuf,
+    loras_memory_limit: u64,
+    embeddings: PathBuf,
+    vae_approx: PathBuf,
+    upscale_models: PathBuf,
+    inpaint: PathBuf,
+    controlnet: PathBuf,
+    clip_vision: PathBuf,
+    fooocus_expansion: PathBuf,
 }
 
 #[derive(Deserialize)]
 struct Config {
     nacos_service_config: ServiceConfig,
     translator_config: TranslatorConfig,
-    models_config: ModelsConfig
+    models_config: ModelsConfig,
 }
 
 fn find_lan_addr() -> std::io::Result<IpAddr> {
@@ -56,7 +64,8 @@ fn find_lan_addr() -> std::io::Result<IpAddr> {
     Ok(addr.ip())
 }
 
-fn init_inner(config_path: &str) {
+#[pyfunction]
+fn init(config_path: &str) {
     let level = std::env::var("FOOOCUS_PLUGIN_LOG")
         .map(|s| tracing::Level::from_str(&s).unwrap())
         .unwrap_or(tracing::Level::INFO);
@@ -72,11 +81,6 @@ fn init_inner(config_path: &str) {
         };
         f().unwrap()
     });
-}
-
-#[pyfunction]
-fn init(config_path: &str) {
-    init_inner(config_path);
 }
 
 fn create_naming_service() -> nacos_sdk::api::error::Result<impl NamingService> {
@@ -97,19 +101,22 @@ fn create_naming_service() -> nacos_sdk::api::error::Result<impl NamingService> 
         .build()
 }
 
-fn service_register_inner(
-    instance_addr: SocketAddr,
+#[pyfunction]
+fn service_register(
+    instance_port: u16,
     instance_name: String,
     metadata_json: &str,
 ) -> PyResult<()> {
+    let instance_ip = find_lan_addr().map_err(|e| PyTypeError::new_err(e.to_string()))?;
+
     let service = NAMING_SERVICE.get_or_init(|| {
         let s = create_naming_service().unwrap();
         Box::new(s)
     });
 
     let instance = ServiceInstance {
-        ip: instance_addr.ip().to_string(),
-        port: instance_addr.port() as i32,
+        ip: instance_ip.to_string(),
+        port: instance_port as i32,
         metadata: serde_json::from_str(metadata_json).map_err(|e| PyTypeError::new_err(e.to_string()))?,
         ..Default::default()
     };
@@ -140,21 +147,7 @@ fn service_register_inner(
 }
 
 #[pyfunction]
-fn service_register(
-    instance_port: u16,
-    instance_name: String,
-    metadata_json: &str,
-) -> PyResult<()> {
-    let instance_ip = find_lan_addr().map_err(|e| PyTypeError::new_err(e.to_string()))?;
-
-    service_register_inner(
-        SocketAddr::new(instance_ip, instance_port),
-        instance_name,
-        metadata_json,
-    )
-}
-
-fn service_deregister_inner() -> PyResult<()> {
+fn service_deregister() -> PyResult<()> {
     match DEREGISTER_SERVICE.lock().unwrap().as_ref() {
         None => Err(PyTypeError::new_err("service has not been registered")),
         Some(v) => v().map_err(|e| PyTypeError::new_err(e.to_string()))
@@ -162,11 +155,7 @@ fn service_deregister_inner() -> PyResult<()> {
 }
 
 #[pyfunction]
-fn service_deregister() -> PyResult<()> {
-    service_deregister_inner()
-}
-
-fn text_translate_inner(
+fn text_translate(
     input_text: &str,
     dst_language: &str,
 ) -> PyResult<String> {
@@ -193,18 +182,10 @@ fn text_translate_inner(
     Ok(msg.translated_text)
 }
 
-#[pyfunction]
-fn text_translate(
-    input_text: &str,
-    dst_language: &str,
-) -> PyResult<String> {
-    text_translate_inner(input_text, dst_language)
-}
-
 struct Item {
     model_path: PathBuf,
     access_time: SystemTime,
-    file_size: u64
+    file_size: u64,
 }
 
 fn search_models(path: &Path) -> io::Result<(Vec<Item>, u64)> {
@@ -223,7 +204,7 @@ fn search_models(path: &Path) -> io::Result<(Vec<Item>, u64)> {
             let item = Item {
                 model_path: entry.path(),
                 access_time,
-                file_size
+                file_size,
             };
 
             items.push(item);
@@ -233,28 +214,24 @@ fn search_models(path: &Path) -> io::Result<(Vec<Item>, u64)> {
     Ok((items, total_model_size))
 }
 
-fn load_model_inner(model_type: &str, model_name: &str) -> PyResult<()> {
+fn load_model(
+    model_disk_parent_path: &Path,
+    memory_disk_path: &Path,
+    model_name: &str,
+    memory_limit: u64,
+) -> PyResult<()> {
     static LOCK: OnceLock<NamedLock> = OnceLock::new();
 
-    let config = &CONFIG.get().ok_or_else(|| PyTypeError::new_err("fooocus plugin is not initialized"))?.models_config;
-    let memory_limit = config.memory_limit * 1024 * 1024 * 1024;
+    let model_memory_parent_path = memory_disk_path.join(model_disk_parent_path.file_name().unwrap().to_str().unwrap());
 
-    let disk_models_dic_path = match model_type {
-        "base" => &config.base_model,
-        "lora" => &config.lora_model,
-        _ => return Err(PyTypeError::new_err("unsupported model type"))
-    };
+    let model_disk_path = model_disk_parent_path.join(model_name);
+    let model_memory_path = model_memory_parent_path.join(model_name);
 
-    let memory_models_dic_path = config.memory_disk_path.join(disk_models_dic_path.file_name().unwrap().to_str().unwrap());
-
-    let disk_model_path = disk_models_dic_path.join(model_name);
-    let memory_model_path = memory_models_dic_path.join(model_name);
-
-    if !memory_model_path.exists() {
+    if !model_memory_path.exists() {
         let lock = LOCK.get_or_init(|| {
             #[cfg(unix)]
             {
-                let path = config.memory_disk_path.join("fooocus_lock");
+                let path = memory_disk_path.join("fooocus_lock");
                 NamedLock::with_path(path).unwrap()
             }
 
@@ -264,29 +241,33 @@ fn load_model_inner(model_type: &str, model_name: &str) -> PyResult<()> {
 
         let _guard = lock.lock().map_err(|e| PyTypeError::new_err(e.to_string()))?;
 
-        let disk_model = std::fs::File::open(&disk_model_path)?;
-        let disk_model_metadata = disk_model.metadata()?;
+        if !model_memory_path.exists() {
+            let disk_model = std::fs::File::open(&model_disk_path)?;
+            let disk_model_metadata = disk_model.metadata()?;
 
-        if disk_model_metadata.len() > memory_limit {
-            return Err(PyTypeError::new_err(format!("{} size > memory limit", disk_model_path.file_name().unwrap().to_str().unwrap())));
-        }
-
-        let (mut models, models_size) = search_models(&memory_models_dic_path)?;
-
-        if models_size + disk_model_metadata.len() > memory_limit {
-            models.sort_unstable_by_key(|v| v.access_time);
-            let mut remove_size = 0;
-
-            while models_size + disk_model_metadata.len() - remove_size > memory_limit {
-                let item= models.pop().unwrap();
-                std::fs::remove_file(&item.model_path)?;
-                remove_size += item.file_size;
+            if disk_model_metadata.len() > memory_limit {
+                return Err(PyTypeError::new_err(format!("{} size > memory limit", model_disk_path.file_name().unwrap().to_str().unwrap())));
             }
+
+            let (mut models, models_size) = search_models(&model_memory_parent_path)?;
+
+            if models_size + disk_model_metadata.len() > memory_limit {
+                models.sort_unstable_by_key(|v| v.access_time);
+                let mut remove_size = 0;
+
+                while models_size + disk_model_metadata.len() - remove_size > memory_limit {
+                    let item = models.pop().unwrap();
+                    std::fs::remove_file(&item.model_path)?;
+                    remove_size += item.file_size;
+                }
+            }
+
+            fs::create_dir_all(&model_memory_parent_path)?;
+            std::fs::copy(&model_disk_path, &model_memory_path)?;
         }
-        std::fs::copy(&disk_model_path, &memory_model_path)?;
     }
 
-    let f = std::fs::File::options().write(true).open(&memory_model_path)?;
+    let f = std::fs::File::options().write(true).open(&model_memory_path)?;
     let ft = FileTimes::new()
         .set_accessed(SystemTime::now());
     f.set_times(ft)?;
@@ -294,8 +275,69 @@ fn load_model_inner(model_type: &str, model_name: &str) -> PyResult<()> {
 }
 
 #[pyfunction]
-fn load_model(model_type: &str, model_name: &str) -> PyResult<()> {
-    load_model_inner(model_type, model_name)
+fn load_checkpoint_model(model_name: &str) -> PyResult<()> {
+    let config = &CONFIG.get().ok_or_else(|| PyTypeError::new_err("fooocus plugin is not initialized"))?.models_config;
+    let memory_limit = config.checkpoints_memory_limit * 1024 * 1024 * 1024;
+    load_model(&config.checkpoints, &config.memory_disk_path, model_name, memory_limit)
+}
+
+#[pyfunction]
+fn load_lora_models(model_json: &str) -> PyResult<()> {
+    #[derive(Deserialize)]
+    struct Lora {
+        model_name: String,
+    }
+
+    let config = &CONFIG.get().ok_or_else(|| PyTypeError::new_err("fooocus plugin is not initialized"))?.models_config;
+    let loras: Vec<Lora> = serde_json::from_str(model_json).map_err(|e| PyTypeError::new_err(e.to_string()))?;
+
+    let total_size: u64 = loras.iter()
+        .map(|v| config.loras.join(&v.model_name).metadata().unwrap().len())
+        .sum();
+
+    let memory_limit = config.loras_memory_limit * 1024 * 1024 * 1024;
+
+    if total_size > memory_limit {
+        return Err(PyTypeError::new_err("lora model size > memory limit"));
+    }
+
+    for model in loras {
+        load_model(&config.loras, &config.memory_disk_path, &model.model_name, memory_limit)?;
+    }
+    Ok(())
+}
+
+fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> io::Result<()> {
+    fs::create_dir_all(&dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        if ty.is_dir() {
+            copy_dir_all(entry.path(), dst.as_ref().join(entry.file_name()))?;
+        } else {
+            fs::copy(entry.path(), dst.as_ref().join(entry.file_name()))?;
+        }
+    }
+    Ok(())
+}
+
+fn copy_models(model_disk_parent_path: &Path, memory_path: &Path) -> io::Result<()> {
+    let to = memory_path.join(model_disk_parent_path.file_name().unwrap().to_str().unwrap());
+    copy_dir_all(model_disk_parent_path, to)
+}
+
+#[pyfunction]
+fn load_model_caches() -> PyResult<()> {
+    let config = &CONFIG.get().ok_or_else(|| PyTypeError::new_err("fooocus plugin is not initialized"))?.models_config;
+
+    copy_models(&config.embeddings, &config.memory_disk_path)?;
+    copy_models(&config.vae_approx, &config.memory_disk_path)?;
+    copy_models(&config.upscale_models, &config.memory_disk_path)?;
+    copy_models(&config.inpaint, &config.memory_disk_path)?;
+    copy_models(&config.controlnet, &config.memory_disk_path)?;
+    copy_models(&config.clip_vision, &config.memory_disk_path)?;
+    copy_models(&config.fooocus_expansion, &config.memory_disk_path)?;
+    Ok(())
 }
 
 /// A Python module implemented in Rust.
@@ -305,7 +347,9 @@ fn fooocus_plugin(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(service_register, m)?)?;
     m.add_function(wrap_pyfunction!(service_deregister, m)?)?;
     m.add_function(wrap_pyfunction!(text_translate, m)?)?;
-    m.add_function(wrap_pyfunction!(load_model, m)?)?;
+    m.add_function(wrap_pyfunction!(load_checkpoint_model, m)?)?;
+    m.add_function(wrap_pyfunction!(load_lora_models, m)?)?;
+    m.add_function(wrap_pyfunction!(load_model_caches, m)?)?;
 
     Ok(())
 }
