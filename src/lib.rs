@@ -315,10 +315,12 @@ fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> io::Result<()> 
     for entry in fs::read_dir(src)? {
         let entry = entry?;
         let ty = entry.file_type()?;
+        let dst = dst.as_ref().join(entry.file_name());
+
         if ty.is_dir() {
-            copy_dir_all(entry.path(), dst.as_ref().join(entry.file_name()))?;
-        } else {
-            fs::copy(entry.path(), dst.as_ref().join(entry.file_name()))?;
+            copy_dir_all(entry.path(), dst)?;
+        } else if dst.exists() {
+            fs::copy(entry.path(), dst)?;
         }
     }
     Ok(())
@@ -326,6 +328,7 @@ fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> io::Result<()> 
 
 fn copy_models(model_disk_parent_path: &Path, memory_path: &Path) -> io::Result<()> {
     let to = memory_path.join(model_disk_parent_path.file_name().unwrap().to_str().unwrap());
+    println!("copy {} to {}", model_disk_parent_path.to_str().unwrap(), to.to_str().unwrap());
     copy_dir_all(model_disk_parent_path, to)
 }
 
