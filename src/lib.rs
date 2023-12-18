@@ -236,6 +236,7 @@ fn load_model(
     model_name: &str,
     memory_limit: u64,
 ) -> PyResult<()> {
+    println!("load model {}", model_name);
     let model_memory_parent_path = memory_disk_path.join(model_disk_parent_path.file_name().unwrap().to_str().unwrap());
 
     let model_disk_path = model_disk_parent_path.join(model_name);
