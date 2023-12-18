@@ -266,6 +266,7 @@ fn load_model(
             }
 
             fs::create_dir_all(&model_memory_parent_path)?;
+            println!("copy {} to {}", model_disk_path.to_str().unwrap(), model_memory_path.to_str().unwrap());
             std::fs::copy(&model_disk_path, &model_memory_path)?;
         }
     }
