@@ -10,7 +10,7 @@ use nacos_sdk::api::constants;
 use nacos_sdk::api::naming::{NamingServiceBuilder, ServiceInstance};
 use nacos_sdk::api::naming::NamingService;
 use nacos_sdk::api::props::ClientProps;
-use named_lock::NamedLock;
+use named_lock::{NamedLock, NamedLockGuard};
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use serde::Deserialize;
@@ -214,32 +214,35 @@ fn search_models(path: &Path) -> io::Result<(Vec<Item>, u64)> {
     Ok((items, total_model_size))
 }
 
+static LOCK: OnceLock<NamedLock> = OnceLock::new();
+
+fn lock(path: &Path) -> PyResult<NamedLockGuard> {
+    let lock = LOCK.get_or_init(|| {
+        #[cfg(unix)]
+        {
+            let path = path.join("fooocus_lock");
+            NamedLock::with_path(path).unwrap()
+        }
+
+        #[cfg(windows)]
+        NamedLock::create("fooocus_lock").unwrap()
+    });
+    lock.lock().map_err(|e| PyTypeError::new_err(e.to_string()))
+}
+
 fn load_model(
     model_disk_parent_path: &Path,
     memory_disk_path: &Path,
     model_name: &str,
     memory_limit: u64,
 ) -> PyResult<()> {
-    static LOCK: OnceLock<NamedLock> = OnceLock::new();
-
     let model_memory_parent_path = memory_disk_path.join(model_disk_parent_path.file_name().unwrap().to_str().unwrap());
 
     let model_disk_path = model_disk_parent_path.join(model_name);
     let model_memory_path = model_memory_parent_path.join(model_name);
 
     if !model_memory_path.exists() {
-        let lock = LOCK.get_or_init(|| {
-            #[cfg(unix)]
-            {
-                let path = memory_disk_path.join("fooocus_lock");
-                NamedLock::with_path(path).unwrap()
-            }
-
-            #[cfg(windows)]
-            NamedLock::create("fooocus_lock").unwrap()
-        });
-
-        let _guard = lock.lock().map_err(|e| PyTypeError::new_err(e.to_string()))?;
+        let _guard = lock(memory_disk_path)?;
 
         if !model_memory_path.exists() {
             let disk_model = std::fs::File::open(&model_disk_path)?;
@@ -329,6 +332,7 @@ fn copy_models(model_disk_parent_path: &Path, memory_path: &Path) -> io::Result<
 #[pyfunction]
 fn load_model_caches() -> PyResult<()> {
     let config = &CONFIG.get().ok_or_else(|| PyTypeError::new_err("fooocus plugin is not initialized"))?.models_config;
+    let _guard = lock(&config.memory_disk_path)?;
 
     copy_models(&config.embeddings, &config.memory_disk_path)?;
     copy_models(&config.vae_approx, &config.memory_disk_path)?;
