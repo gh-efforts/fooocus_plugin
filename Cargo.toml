@@ -18,6 +18,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["default"] }
 nacos-sdk = { git = "https://github.com/gh-efforts/nacos-sdk-rust.git", version = "0.3.3", features = ["default", "tls"] }
 ureq = { version = "2", default-features = false, features = ["tls", "json"] }
+named-lock = "0.3"
 
 [profile.release]
 lto = true
