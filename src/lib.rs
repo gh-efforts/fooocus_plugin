@@ -238,6 +238,7 @@ fn load_model(
 
     let mut update = false;
 
+    // todo reading deleted files may occur
     if !model_memory_path.exists() {
         let _guard = lock(memory_disk_path)?;
 
