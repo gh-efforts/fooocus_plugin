@@ -8,20 +8,9 @@ namespace = "id"
 api = "http://127.0.0.1:5000/translate"
 
 [models_config]
-memory_disk_path = ""
+model_path = "/opt/vpc/models"
+model_memory_path = "/dev/shm/models"
 
-# Lazy load
-checkpoints = ""
 # GB
 checkpoints_memory_limit = 50
-loras = ""
 loras_memory_limit = 50
-
-# Eager load
-embeddings = ""
-vae_approx = ""
-upscale_models = ""
-inpaint = ""
-controlnet = ""
-clip_vision = ""
-fooocus_expansion = ""

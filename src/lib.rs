@@ -36,18 +36,10 @@ struct TranslatorConfig {
 
 #[derive(Deserialize)]
 struct ModelsConfig {
-    memory_disk_path: PathBuf,
-    checkpoints: PathBuf,
+    model_memory_path: PathBuf,
+    model_path: PathBuf,
     checkpoints_memory_limit: u64,
-    loras: PathBuf,
     loras_memory_limit: u64,
-    embeddings: PathBuf,
-    vae_approx: PathBuf,
-    upscale_models: PathBuf,
-    inpaint: PathBuf,
-    controlnet: PathBuf,
-    clip_vision: PathBuf,
-    fooocus_expansion: PathBuf,
 }
 
 #[derive(Deserialize)]
@@ -231,13 +223,15 @@ fn lock(#[allow(unused)] path: &Path) -> PyResult<NamedLockGuard> {
 }
 
 fn load_model(
-    model_disk_parent_path: &Path,
+    disk_path: &Path,
     memory_disk_path: &Path,
+    model_parent_path: &Path,
     model_name: &str,
     memory_limit: u64,
 ) -> PyResult<bool> {
     println!("load model {}", model_name);
-    let model_memory_parent_path = memory_disk_path.join(model_disk_parent_path.file_name().unwrap().to_str().unwrap());
+    let model_memory_parent_path = memory_disk_path.join(model_parent_path);
+    let model_disk_parent_path = disk_path.join(model_parent_path);
 
     let model_disk_path = model_disk_parent_path.join(model_name);
     let model_memory_path = model_memory_parent_path.join(model_name);
@@ -290,7 +284,7 @@ fn load_checkpoint_model(model_name: &str) -> PyResult<bool> {
 
     let config = &CONFIG.get().ok_or_else(|| PyTypeError::new_err("fooocus plugin is not initialized"))?.models_config;
     let memory_limit = config.checkpoints_memory_limit * 1024 * 1024 * 1024;
-    load_model(&config.checkpoints, &config.memory_disk_path, model_name, memory_limit)
+    load_model(&config.model_path, &config.model_memory_path, Path::new("checkpoints"), model_name, memory_limit)
 }
 
 #[pyfunction]
@@ -299,7 +293,7 @@ fn load_lora_models(models: Vec<(&str, f32)>) -> PyResult<bool> {
     let config = &CONFIG.get().ok_or_else(|| PyTypeError::new_err("fooocus plugin is not initialized"))?.models_config;
 
     let total_size: u64 = models.iter()
-        .map(|(model_name, _)| config.loras.join(model_name).metadata().unwrap().len())
+        .map(|(model_name, _)| config.model_path.join(Path::new("loras")).join(model_name).metadata().unwrap().len())
         .sum();
 
     let memory_limit = config.loras_memory_limit * 1024 * 1024 * 1024;
@@ -309,7 +303,7 @@ fn load_lora_models(models: Vec<(&str, f32)>) -> PyResult<bool> {
     }
 
     for (model_name, _) in &models {
-        update |= load_model(&config.loras, &config.memory_disk_path, model_name, memory_limit)?;
+        update |= load_model(&config.model_path, &config.model_memory_path, Path::new("loras"), model_name, memory_limit)?;
     }
     Ok(update)
 }
@@ -330,32 +324,39 @@ fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> io::Result<()> 
     Ok(())
 }
 
-fn copy_models(model_disk_parent_path: &Path, memory_path: &Path) -> io::Result<()> {
-    let to = memory_path.join(model_disk_parent_path.file_name().unwrap().to_str().unwrap());
-    println!("copy {} to {}", model_disk_parent_path.to_str().unwrap(), to.to_str().unwrap());
-    copy_dir_all(model_disk_parent_path, to)
+fn copy_models(
+    memory_path: &Path,
+    disk_path: &Path,
+    model_parent_path: &Path
+) -> io::Result<()> {
+    let from = disk_path.join(model_parent_path);
+    let to = memory_path.join(model_parent_path);
+
+    println!("copy {} to {}", from.to_str().unwrap(), to.to_str().unwrap());
+    copy_dir_all(from, to)
 }
 
-fn create_dic(model_disk_parent_path: &Path, memory_path: &Path) -> io::Result<()> {
-    let to = memory_path.join(model_disk_parent_path.file_name().unwrap().to_str().unwrap());
+fn create_dic(memory_path: &Path, model_parent_path: &Path) -> io::Result<()> {
+    let to = memory_path.join(model_parent_path);
     fs::create_dir_all(&to)
 }
 
 #[pyfunction]
 fn load_model_caches() -> PyResult<()> {
     let config = &CONFIG.get().ok_or_else(|| PyTypeError::new_err("fooocus plugin is not initialized"))?.models_config;
-    let _guard = lock(&config.memory_disk_path)?;
+    let _guard = lock(&config.model_memory_path)?;
 
-    create_dic(&config.checkpoints, &config.memory_disk_path)?;
-    create_dic(&config.loras, &config.memory_disk_path)?;
+    create_dic(&config.model_memory_path, Path::new("checkpoints"))?;
+    create_dic(&config.model_memory_path, Path::new("loras"))?;
 
-    copy_models(&config.embeddings, &config.memory_disk_path)?;
-    copy_models(&config.vae_approx, &config.memory_disk_path)?;
-    copy_models(&config.upscale_models, &config.memory_disk_path)?;
-    copy_models(&config.inpaint, &config.memory_disk_path)?;
-    copy_models(&config.controlnet, &config.memory_disk_path)?;
-    copy_models(&config.clip_vision, &config.memory_disk_path)?;
-    copy_models(&config.fooocus_expansion, &config.memory_disk_path)?;
+    copy_models(&config.model_memory_path, &config.model_path, Path::new("embeddings"))?;
+    copy_models(&config.model_memory_path, &config.model_path, Path::new("vae_approx"))?;
+    copy_models(&config.model_memory_path, &config.model_path, Path::new("upscale_models"))?;
+    copy_models(&config.model_memory_path, &config.model_path, Path::new("inpaint"))?;
+    copy_models(&config.model_memory_path, &config.model_path, Path::new("controlnet"))?;
+    copy_models(&config.model_memory_path, &config.model_path, Path::new("clip_vision"))?;
+    copy_models(&config.model_memory_path, &config.model_path, Path::new("prompt_expansion/fooocus_expansion"))?;
+
     Ok(())
 }
 
