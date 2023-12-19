@@ -246,7 +246,7 @@ fn load_model(
             let disk_model_metadata = disk_model.metadata()?;
 
             if disk_model_metadata.len() > memory_limit {
-                return Err(PyTypeError::new_err(format!("{} size > memory limit", model_disk_path.file_name().unwrap().to_str().unwrap())));
+                return Err(PyTypeError::new_err(format!("{} size > memory limit", model_name)));
             }
 
             update = true;
@@ -263,7 +263,6 @@ fn load_model(
                 }
             }
 
-            fs::create_dir_all(&model_memory_parent_path)?;
             println!("copy {} to {}", model_disk_path.to_str().unwrap(), model_memory_path.to_str().unwrap());
             std::fs::copy(&model_disk_path, &model_memory_path)?;
         }
@@ -344,6 +343,7 @@ fn create_dic(memory_path: &Path, model_parent_path: &Path) -> io::Result<()> {
 #[pyfunction]
 fn load_model_caches() -> PyResult<()> {
     let config = &CONFIG.get().ok_or_else(|| PyTypeError::new_err("fooocus plugin is not initialized"))?.models_config;
+    fs::create_dir_all(&config.model_memory_path)?;
     let _guard = lock(&config.model_memory_path)?;
 
     create_dic(&config.model_memory_path, Path::new("checkpoints"))?;
