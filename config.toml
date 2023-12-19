@@ -7,7 +7,6 @@ namespace = "id"
 [translator_config]
 api = "http://127.0.0.1:5000/translate"
 
-#todo 提前创建目录, 移除初始化默认下载模型逻辑
 [models_config]
 memory_disk_path = ""
 

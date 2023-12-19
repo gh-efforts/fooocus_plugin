@@ -216,7 +216,7 @@ fn search_models(path: &Path) -> io::Result<(Vec<Item>, u64)> {
 
 static LOCK: OnceLock<NamedLock> = OnceLock::new();
 
-fn lock(path: &Path) -> PyResult<NamedLockGuard> {
+fn lock(#[allow(unused)] path: &Path) -> PyResult<NamedLockGuard> {
     let lock = LOCK.get_or_init(|| {
         #[cfg(unix)]
         {
@@ -235,12 +235,14 @@ fn load_model(
     memory_disk_path: &Path,
     model_name: &str,
     memory_limit: u64,
-) -> PyResult<()> {
+) -> PyResult<bool> {
     println!("load model {}", model_name);
     let model_memory_parent_path = memory_disk_path.join(model_disk_parent_path.file_name().unwrap().to_str().unwrap());
 
     let model_disk_path = model_disk_parent_path.join(model_name);
     let model_memory_path = model_memory_parent_path.join(model_name);
+
+    let mut update = false;
 
     if !model_memory_path.exists() {
         let _guard = lock(memory_disk_path)?;
@@ -253,6 +255,7 @@ fn load_model(
                 return Err(PyTypeError::new_err(format!("{} size > memory limit", model_disk_path.file_name().unwrap().to_str().unwrap())));
             }
 
+            update = true;
             let (mut models, models_size) = search_models(&model_memory_parent_path)?;
 
             if models_size + disk_model_metadata.len() > memory_limit {
@@ -276,28 +279,27 @@ fn load_model(
     let ft = FileTimes::new()
         .set_accessed(SystemTime::now());
     f.set_times(ft)?;
-    Ok(())
+    Ok(update)
 }
 
 #[pyfunction]
-fn load_checkpoint_model(model_name: &str) -> PyResult<()> {
+fn load_checkpoint_model(model_name: &str) -> PyResult<bool> {
+    if model_name.is_empty() || model_name == "None" {
+        return Ok(false)
+    }
+
     let config = &CONFIG.get().ok_or_else(|| PyTypeError::new_err("fooocus plugin is not initialized"))?.models_config;
     let memory_limit = config.checkpoints_memory_limit * 1024 * 1024 * 1024;
     load_model(&config.checkpoints, &config.memory_disk_path, model_name, memory_limit)
 }
 
 #[pyfunction]
-fn load_lora_models(model_json: &str) -> PyResult<()> {
-    #[derive(Deserialize)]
-    struct Lora {
-        model_name: String,
-    }
-
+fn load_lora_models(models: Vec<(String, f32)>) -> PyResult<bool> {
+    let mut update = false;
     let config = &CONFIG.get().ok_or_else(|| PyTypeError::new_err("fooocus plugin is not initialized"))?.models_config;
-    let loras: Vec<Lora> = serde_json::from_str(model_json).map_err(|e| PyTypeError::new_err(e.to_string()))?;
 
-    let total_size: u64 = loras.iter()
-        .map(|v| config.loras.join(&v.model_name).metadata().unwrap().len())
+    let total_size: u64 = models.iter()
+        .map(|(model_name, _)| config.loras.join(model_name).metadata().unwrap().len())
         .sum();
 
     let memory_limit = config.loras_memory_limit * 1024 * 1024 * 1024;
@@ -306,10 +308,10 @@ fn load_lora_models(model_json: &str) -> PyResult<()> {
         return Err(PyTypeError::new_err("lora model size > memory limit"));
     }
 
-    for model in loras {
-        load_model(&config.loras, &config.memory_disk_path, &model.model_name, memory_limit)?;
+    for (model_name, _) in &models {
+        update |= load_model(&config.loras, &config.memory_disk_path, model_name, memory_limit)?;
     }
-    Ok(())
+    Ok(update)
 }
 
 fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> io::Result<()> {
@@ -334,10 +336,18 @@ fn copy_models(model_disk_parent_path: &Path, memory_path: &Path) -> io::Result<
     copy_dir_all(model_disk_parent_path, to)
 }
 
+fn create_dic(model_disk_parent_path: &Path, memory_path: &Path) -> io::Result<()> {
+    let to = memory_path.join(model_disk_parent_path.file_name().unwrap().to_str().unwrap());
+    fs::create_dir_all(&to)
+}
+
 #[pyfunction]
 fn load_model_caches() -> PyResult<()> {
     let config = &CONFIG.get().ok_or_else(|| PyTypeError::new_err("fooocus plugin is not initialized"))?.models_config;
     let _guard = lock(&config.memory_disk_path)?;
+
+    create_dic(&config.checkpoints, &config.memory_disk_path)?;
+    create_dic(&config.loras, &config.memory_disk_path)?;
 
     copy_models(&config.embeddings, &config.memory_disk_path)?;
     copy_models(&config.vae_approx, &config.memory_disk_path)?;
