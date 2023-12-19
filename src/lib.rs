@@ -318,7 +318,7 @@ fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> io::Result<()> 
         if ty.is_dir() {
             copy_dir_all(entry.path(), dst)?;
         } else if !dst.exists() {
-            fs::copy(entry.path(), dst)?;
+            fs::copy(entry.path(), dst).map_err(|e| std::io::Error::new(io::ErrorKind::Other, format!("copy file {} error: {:?}", entry.path().to_str().unwrap(), e)))?;
         }
     }
     Ok(())
