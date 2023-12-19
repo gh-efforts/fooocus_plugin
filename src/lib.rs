@@ -347,13 +347,14 @@ fn create_dic(memory_path: &Path, model_parent_path: &Path) -> io::Result<()> {
 fn load_model_caches() -> PyResult<()> {
     let config = &CONFIG.get().ok_or_else(|| PyTypeError::new_err("fooocus plugin is not initialized"))?.models_config;
     fs::create_dir_all(&config.model_memory_path)?;
-    let _guard = lock(&config.model_memory_path)?;
 
     create_dic(&config.model_memory_path, Path::new("checkpoints"))?;
     create_dic(&config.model_memory_path, Path::new("loras"))?;
 
     load_checkpoint_model("juggernautXL_version6Rundiffusion.safetensors")?;
     load_lora_models(vec![("sd_xl_offset_example-lora_1.0.safetensors", 0.0)])?;
+
+    let _guard = lock(&config.model_memory_path)?;
 
     copy_models(&config.model_memory_path, &config.model_path, Path::new("embeddings"))?;
     copy_models(&config.model_memory_path, &config.model_path, Path::new("vae_approx"))?;
