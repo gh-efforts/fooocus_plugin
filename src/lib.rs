@@ -294,7 +294,7 @@ fn load_checkpoint_model(model_name: &str) -> PyResult<bool> {
 }
 
 #[pyfunction]
-fn load_lora_models(models: Vec<(String, f32)>) -> PyResult<bool> {
+fn load_lora_models(models: Vec<(&str, f32)>) -> PyResult<bool> {
     let mut update = false;
     let config = &CONFIG.get().ok_or_else(|| PyTypeError::new_err("fooocus plugin is not initialized"))?.models_config;
 
