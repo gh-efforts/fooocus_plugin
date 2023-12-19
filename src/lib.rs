@@ -310,7 +310,9 @@ fn load_lora_models(models: Vec<(&str, f32)>) -> PyResult<bool> {
 
 fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> io::Result<()> {
     fs::create_dir_all(&dst)?;
-    for entry in fs::read_dir(src).map_err(|e| std::io::Error::new(io::ErrorKind::Other, format!("failed to open {:?}", e)))? {
+    let src = src.as_ref();
+
+    for entry in fs::read_dir(src).map_err(|e| std::io::Error::new(io::ErrorKind::Other, format!("failed to open {}, error: {:?}", src.to_str().unwrap(), e)))? {
         let entry = entry?;
         let ty = entry.file_type()?;
         let dst = dst.as_ref().join(entry.file_name());
