@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::{Mutex, OnceLock};
 use std::time::SystemTime;
+use async_openai::config::OpenAIConfig;
+use async_openai::types::{ChatCompletionRequestSystemMessageArgs, ChatCompletionRequestUserMessageArgs, CreateChatCompletionRequestArgs};
 
 use nacos_sdk::api::constants;
 use nacos_sdk::api::naming::{NamingServiceBuilder, ServiceInstance};
@@ -13,13 +15,11 @@ use nacos_sdk::api::props::ClientProps;
 use named_lock::{NamedLock, NamedLockGuard};
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
+use rand::Rng;
 use serde::Deserialize;
 use ureq::Agent;
 
 static CONFIG: OnceLock<Config> = OnceLock::new();
-static NAMING_SERVICE: OnceLock<Box<dyn NamingService + Sync + Send + 'static>> = OnceLock::new();
-static DEREGISTER_SERVICE: Mutex<Option<Box<dyn Fn() -> nacos_sdk::api::error::Result<()> + Sync + Send + 'static>>> = Mutex::new(None);
-static CLIENT: OnceLock<Agent> = OnceLock::new();
 
 #[derive(Deserialize)]
 struct ServiceConfig {
@@ -30,8 +30,13 @@ struct ServiceConfig {
 }
 
 #[derive(Deserialize)]
-struct TranslatorConfig {
-    api: String,
+enum TranslatorConfig {
+    LibreTranslate {
+        api: String
+    },
+    OpenAI {
+        keys: Vec<String>
+    }
 }
 
 #[derive(Deserialize)]
@@ -93,6 +98,9 @@ fn create_naming_service() -> nacos_sdk::api::error::Result<impl NamingService> 
         .build()
 }
 
+static NAMING_SERVICE: OnceLock<Box<dyn NamingService + Sync + Send + 'static>> = OnceLock::new();
+static DEREGISTER_SERVICE: Mutex<Option<Box<dyn Fn() -> nacos_sdk::api::error::Result<()> + Sync + Send + 'static>>> = Mutex::new(None);
+
 #[pyfunction]
 fn service_register(
     instance_port: u16,
@@ -146,32 +154,106 @@ fn service_deregister() -> PyResult<()> {
     }
 }
 
+trait Translate {
+    fn text_translate(&self, input_text: &str, dst_language: &str) -> PyResult<String>;
+}
+
+struct LibreTranslate {
+    client: Agent,
+    api: String
+}
+
+impl Translate for LibreTranslate {
+    fn text_translate(&self, input_text: &str, dst_language: &str) -> PyResult<String> {
+        let resp = self.client.post(&self.api)
+            .send_json(ureq::json!({
+                    "q": input_text,
+                    "source": "auto",
+                    "target": dst_language
+                })).map_err(|e| PyTypeError::new_err(e.to_string()))?;
+
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Message {
+            translated_text: String,
+        }
+
+        let msg: Message = resp.into_json()?;
+        Ok(msg.translated_text)
+    }
+}
+
+struct OpenAI {
+    clients: Vec<async_openai::Client<OpenAIConfig>>,
+    tokio_rt: tokio::runtime::Runtime
+}
+
+impl Translate for OpenAI {
+    fn text_translate(&self, input_text: &str, dst_language: &str) -> PyResult<String> {
+        let request = CreateChatCompletionRequestArgs::default()
+            .model("gpt-3.5-turbo")
+            .messages([
+                ChatCompletionRequestSystemMessageArgs::default()
+                    .content(format!("Translate all text into {}", dst_language))
+                    .build()
+                    .map_err(|e| PyTypeError::new_err(e.to_string()))?
+                    .into(),
+                ChatCompletionRequestUserMessageArgs::default()
+                    .content(input_text)
+                    .build()
+                    .map_err(|e| PyTypeError::new_err(e.to_string()))?
+                    .into(),
+            ])
+            .build()
+            .map_err(|e| PyTypeError::new_err(e.to_string()))?;
+
+        let clients = self.clients.as_slice();
+        let i = rand::thread_rng().gen_range(0..clients.len());
+        let client = &clients[i];
+
+        let mut response = self.tokio_rt.block_on(client.chat().create(request)).map_err(|e| PyTypeError::new_err(e.to_string()))?;
+        let choice = response.choices.pop().ok_or_else(||  PyTypeError::new_err("choices is empty"))?;
+        let content = choice.message.content.ok_or_else(||  PyTypeError::new_err("content is empty"))?;
+
+        Ok(content)
+    }
+}
+
 #[pyfunction]
 fn text_translate(
     input_text: &str,
     dst_language: &str,
 ) -> PyResult<String> {
-    let c = CLIENT.get_or_init(|| {
-        ureq::Agent::new()
-    });
+    static TRANSLATOR: OnceLock<Box<dyn Translate + Sync + Send + 'static>> = OnceLock::new();
 
     let config = &CONFIG.get().ok_or_else(|| PyTypeError::new_err("fooocus plugin is not initialized"))?.translator_config;
 
-    let resp = c.post(&config.api)
-        .send_json(ureq::json!({
-            "q": input_text,
-            "source": "auto",
-            "target": dst_language
-        })).map_err(|e| PyTypeError::new_err(e.to_string()))?;
+    let translator = TRANSLATOR.get_or_init(|| {
+        match config {
+            TranslatorConfig::LibreTranslate { api } => {
+                let translator = LibreTranslate {
+                    client: ureq::Agent::new(),
+                    api: api.clone()
+                };
+                Box::new(translator)
+            }
+            TranslatorConfig::OpenAI { keys} => {
+                let client = reqwest::Client::new();
+                let mut clients = Vec::with_capacity(keys.len());
 
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Message {
-        translated_text: String,
-    }
+                for x in keys {
+                    let open_ai_config = OpenAIConfig::new().with_api_key(x);
+                    let open_ai_client = async_openai::Client::with_config(open_ai_config).with_http_client(client.clone());
+                    clients.push(open_ai_client);
+                }
 
-    let msg: Message = resp.into_json()?;
-    Ok(msg.translated_text)
+                let tokio_rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+                Box::new(OpenAI { clients, tokio_rt})
+            }
+        }
+    });
+
+    translator.text_translate(input_text, dst_language)
 }
 
 struct Item {
@@ -206,9 +288,9 @@ fn search_models(path: &Path) -> io::Result<(Vec<Item>, u64)> {
     Ok((items, total_model_size))
 }
 
-static LOCK: OnceLock<NamedLock> = OnceLock::new();
-
 fn lock(#[allow(unused)] path: &Path) -> PyResult<NamedLockGuard> {
+    static LOCK: OnceLock<NamedLock> = OnceLock::new();
+
     let lock = LOCK.get_or_init(|| {
         #[cfg(unix)]
         {
