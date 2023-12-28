@@ -5,7 +5,9 @@ password = "xxx"
 namespace = "id"
 
 [translator_config]
-api = "http://127.0.0.1:5000/translate"
+libre_translate = { api = "http://127.0.0.1:5000/translate" }
+# or
+# open_ai = { keys = ["sk-xxxxxxxxxxx"] }
 
 [models_config]
 model_path = "/opt/vpc/models"

@@ -30,11 +30,12 @@ struct ServiceConfig {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
 enum TranslatorConfig {
     LibreTranslate {
         api: String
     },
-    OpenAI {
+    OpenAi {
         keys: Vec<String>
     }
 }
@@ -237,7 +238,7 @@ fn text_translate(
                 };
                 Box::new(translator)
             }
-            TranslatorConfig::OpenAI { keys} => {
+            TranslatorConfig::OpenAi { keys} => {
                 let client = reqwest::Client::new();
                 let mut clients = Vec::with_capacity(keys.len());
 
