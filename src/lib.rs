@@ -185,7 +185,7 @@ impl Translate for LibreTranslate {
 }
 
 struct OpenAI {
-    clients: Vec<async_openai::Client<OpenAIConfig>>,
+    clients: Vec<(String, async_openai::Client<OpenAIConfig>)>,
     tokio_rt: tokio::runtime::Runtime
 }
 
@@ -210,9 +210,11 @@ impl Translate for OpenAI {
 
         let clients = self.clients.as_slice();
         let i = rand::thread_rng().gen_range(0..clients.len());
-        let client = &clients[i];
+        let (suffix, client) = &clients[i];
 
-        let mut response = self.tokio_rt.block_on(client.chat().create(request)).map_err(|e| PyTypeError::new_err(e.to_string()))?;
+        let mut response = self.tokio_rt
+            .block_on(client.chat().create(request))
+            .map_err(|e|  PyTypeError::new_err(format!("openai[{}] error: {}", suffix, e.to_string())))?;
         let choice = response.choices.pop().ok_or_else(||  PyTypeError::new_err("choices is empty"))?;
         let content = choice.message.content.ok_or_else(||  PyTypeError::new_err("content is empty"))?;
 
@@ -243,9 +245,10 @@ fn text_translate(
                 let mut clients = Vec::with_capacity(keys.len());
 
                 for x in keys {
+                    let suffix = x[x.len() - 4..].to_string();
                     let open_ai_config = OpenAIConfig::new().with_api_key(x);
                     let open_ai_client = async_openai::Client::with_config(open_ai_config).with_http_client(client.clone());
-                    clients.push(open_ai_client);
+                    clients.push((suffix, open_ai_client));
                 }
 
                 let tokio_rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
