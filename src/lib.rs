@@ -449,6 +449,7 @@ fn load_model_caches() -> PyResult<()> {
     copy_models(&config.model_memory_path, &config.model_path, Path::new("controlnet"))?;
     copy_models(&config.model_memory_path, &config.model_path, Path::new("clip_vision"))?;
     copy_models(&config.model_memory_path, &config.model_path, Path::new("prompt_expansion/fooocus_expansion"))?;
+    copy_models(&config.model_memory_path, &config.model_path, Path::new("u2net"))?;
 
     Ok(())
 }
