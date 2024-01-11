@@ -16,7 +16,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["default"] }
-nacos-sdk = { git = "https://github.com/gh-efforts/nacos-sdk-rust.git", version = "0.3.3", features = ["default", "tls"] }
+nacos-sdk = { git = "https://github.com/gh-efforts/nacos-sdk-rust.git", version = "0.3", features = ["default", "tls"] }
 ureq = { version = "2", default-features = false, features = ["tls", "json"] }
 named-lock = "0.3"
 async-openai = { git = "https://github.com/64bit/async-openai.git", default-features = false, features = ["rustls-webpki-roots"]}
