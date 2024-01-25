@@ -6,3 +6,5 @@
 pip install maturin
 maturin build --release
 ```
+### ENV
+`FOOOCUS_NACOS_LOG` default value is `off`
