@@ -64,10 +64,11 @@ fn find_lan_addr() -> std::io::Result<IpAddr> {
 
 #[pyfunction]
 fn init(config_path: &str) {
-    let level_str = std::env::var("FOOOCUS_NACOS_LOG").unwrap_or_else(|| String::from("off"));
+    let level_str = std::env::var("FOOOCUS_NACOS_LOG");
+    let level_str = level_str.as_deref().unwrap_or("off");
 
     if level_str != "off" {
-        let level = tracing::Level::from_str(&level_str).unwrap();
+        let level = tracing::Level::from_str(level_str).unwrap();
 
         tracing_subscriber::fmt()
             .with_max_level(level)
