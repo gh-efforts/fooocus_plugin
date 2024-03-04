@@ -440,19 +440,19 @@ fn load_model_caches() -> PyResult<()> {
     create_dic(&config.model_memory_path, Path::new("checkpoints"))?;
     create_dic(&config.model_memory_path, Path::new("loras"))?;
 
-    load_checkpoint_model("juggernautXL_version6Rundiffusion.safetensors")?;
-    load_lora_models(vec![("sd_xl_offset_example-lora_1.0.safetensors", 0.0)])?;
-
     let _guard = lock(&config.model_memory_path)?;
 
-    copy_models(&config.model_memory_path, &config.model_path, Path::new("embeddings"))?;
-    copy_models(&config.model_memory_path, &config.model_path, Path::new("vae_approx"))?;
-    copy_models(&config.model_memory_path, &config.model_path, Path::new("upscale_models"))?;
-    copy_models(&config.model_memory_path, &config.model_path, Path::new("inpaint"))?;
-    copy_models(&config.model_memory_path, &config.model_path, Path::new("controlnet"))?;
+    copy_models(&config.model_memory_path, &config.model_path, Path::new("checkpoints"))?;
+    copy_models(&config.model_memory_path, &config.model_path, Path::new("clip"))?;
     copy_models(&config.model_memory_path, &config.model_path, Path::new("clip_vision"))?;
-    copy_models(&config.model_memory_path, &config.model_path, Path::new("prompt_expansion/fooocus_expansion"))?;
-    copy_models(&config.model_memory_path, &config.model_path, Path::new("u2net"))?;
+    copy_models(&config.model_memory_path, &config.model_path, Path::new("configs"))?;
+    copy_models(&config.model_memory_path, &config.model_path, Path::new("controlnet"))?;
+    copy_models(&config.model_memory_path, &config.model_path, Path::new("embeddings"))?;
+    copy_models(&config.model_memory_path, &config.model_path, Path::new("loras"))?;
+    copy_models(&config.model_memory_path, &config.model_path, Path::new(""))?;
+    copy_models(&config.model_memory_path, &config.model_path, Path::new("upscale_models"))?;
+    copy_models(&config.model_memory_path, &config.model_path, Path::new("vae"))?;
+
 
     Ok(())
 }
