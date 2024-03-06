@@ -449,10 +449,11 @@ fn load_model_caches() -> PyResult<()> {
     copy_models(&config.model_memory_path, &config.model_path, Path::new("controlnet"))?;
     copy_models(&config.model_memory_path, &config.model_path, Path::new("embeddings"))?;
     copy_models(&config.model_memory_path, &config.model_path, Path::new("loras"))?;
-    copy_models(&config.model_memory_path, &config.model_path, Path::new(""))?;
+    copy_models(&config.model_memory_path, &config.model_path, Path::new("ipadapter"))?;
     copy_models(&config.model_memory_path, &config.model_path, Path::new("upscale_models"))?;
     copy_models(&config.model_memory_path, &config.model_path, Path::new("vae"))?;
-
+    copy_models(&config.model_memory_path, &config.model_path, Path::new("rembg"))?;
+    copy_models(&config.model_memory_path, &config.model_path, Path::new("custom_nodes"))?;
 
     Ok(())
 }
